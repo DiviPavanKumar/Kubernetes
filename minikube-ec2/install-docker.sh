@@ -1,67 +1,61 @@
 #!/bin/bash
+# ---------------------------------------------------------------------------
+# Installs Docker CE, kubectl, and Minikube on CentOS/RHEL/Amazon Linux.
+# Writes progress to /tmp/install-k8s-stack-<timestamp>.log
+# ---------------------------------------------------------------------------
 
-date_var=$(date +%F-%H-%M-%S)
-SCRIPT_NAME=$(basename "$0")
-LOGFILE="/tmp/${SCRIPT_NAME}-${date_var}.log"
+set -euo pipefail
 
-# Define color codes for output
-R="\e[31m"  # Red (Failure)
-G="\e[32m"  # Green (Success)
-Y="\e[33m"  # Yellow (Info)
-N="\e[0m"   # Reset color
+# ---------- basic setup -----------------------------------------------------
+TS=$(date +%F-%H-%M-%S)
+LOG=/tmp/install-k8s-stack-${TS}.log
+echo "Log: $LOG"
 
-# Check if the script is run as root
-if [ "$(id -u)" -ne 0 ]; then
-    echo -e "${R}Error: Please run this script with sudo or as root.${N}"
-    exit 1
-fi
+RED="\e[31m"; GRN="\e[32m"; YEL="\e[33m"; NRM="\e[0m"
 
-# Validation function
-VALIDATE() {
-    if [ $1 -ne 0 ]; then
-        echo -e "$2 ..... ${R}Failed${N}" | tee -a "$LOGFILE"
-        exit 1
-    else
-        echo -e "$2 ..... ${G}Successful${N}" | tee -a "$LOGFILE"
-    fi
-}
+die() { echo -e "${RED}$*${NRM}" | tee -a "$LOG"; exit 1; }
+ok()  { echo -e "${GRN}$*${NRM}" | tee -a "$LOG"; }
 
-echo "Starting Docker installation at $(date)" | tee -a "$LOGFILE"
+[ "$(id -u)" -eq 0 ] || die "Run as root or with sudo"
 
-# 1. Update existing packages
-yum update -y &>> "$LOGFILE"
-VALIDATE $? "Updating packages"
+# Choose yum (EL7) or dnf (EL8+)
+PM=$(command -v dnf || command -v yum) || die "No package manager found"
 
-# 2. Install required packages
-yum install -y yum-utils device-mapper-persistent-data lvm2 &>> "$LOGFILE"
-VALIDATE $? "Installing required packages"
+# ---------- remove old container packages ----------------------------------
+echo -e "${YEL}Removing any old Docker/Podman...${NRM}"
+$PM -y remove docker* podman runc containerd &>>"$LOG" || true
+ok "Cleaned old container packages"
 
-# 3. Add Docker repository
-yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo &>> "$LOGFILE"
-VALIDATE $? "Adding Docker repo"
+# ---------- system update + base tools -------------------------------------
+echo -e "${YEL}Updating OS and installing tools...${NRM}"
+$PM -y install dnf-plugins-core curl tar ca-certificates &>>"$LOG"
+ok "Base packages ready"
 
-# 4. Install Docker Engine
-yum install -y docker-ce docker-ce-cli containerd.io &>> "$LOGFILE"
-VALIDATE $? "Installing Docker"
+# ---------- Docker CE -------------------------------------------------------
+echo -e "${YEL}Adding Docker CE repo & installing Docker...${NRM}"
+$PM config-manager --add-repo https://download.docker.com/linux/$(. /etc/os-release; echo $ID)/docker-ce.repo &>>"$LOG"
+$PM -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin &>>"$LOG"
+systemctl enable --now docker &>>"$LOG"
+usermod -aG docker "${SUDO_USER:-root}" || true
+ok "Docker installed and running"
 
-# 5. Start Docker service
-systemctl start docker &>> "$LOGFILE"
-VALIDATE $? "Starting Docker"
+# ---------- kubectl ---------------------------------------------------------
+echo -e "${YEL}Installing kubectl...${NRM}"
+KVER=$(curl -sL https://dl.k8s.io/release/stable.txt)
+curl -sL "https://dl.k8s.io/release/${KVER}/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl
+chmod 755 /usr/local/bin/kubectl
+ok "kubectl ${KVER} installed"
 
-# 6. Enable Docker to start on boot
-systemctl enable docker &>> "$LOGFILE"
-VALIDATE $? "Enabling Docker"
+# ---------- Minikube --------------------------------------------------------
+echo -e "${YEL}Installing Minikube...${NRM}"
+curl -sL https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64 -o /usr/local/bin/minikube
+chmod 755 /usr/local/bin/minikube
+ok "Minikube installed"
 
-# 7. Verify Docker is installed and running
-echo "Verifying Docker version..." | tee -a "$LOGFILE"
-docker --version
+# ---------- done ------------------------------------------------------------
+echo -e "${GRN}All done!${NRM}
+- Re‑login so your user picks up Docker group membership.
+- Start a cluster with:  minikube start --driver=docker
+- Check it with:         kubectl get nodes
 
-# 8. Run hello-world test container
-docker run hello-world &>> "$LOGFILE"
-VALIDATE $? "Running hello-world container"
-
-# 9. Add user to docker group
-usermod -aG docker $USER &>> "$LOGFILE"
-VALIDATE $? "Adding user to docker group"
-
-echo -e "${G}Docker installation completed successfully at $(date)${N}" | tee -a "$LOGFILE"
+Full log: $LOG"
