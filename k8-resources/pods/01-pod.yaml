@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: simple-pod
+  namespace: pod-practicing  # Use hyphen, not underscore (Kubernetes naming rule)
+spec:
+  containers:
+  - name: nginx              # should be under 'containers', and it's a list
+    image: nginx:latest
+    ports:
+    - containerPort: 80
