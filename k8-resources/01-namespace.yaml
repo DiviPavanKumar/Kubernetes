@@ -1,4 +1,4 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: kubernetes-resources-namespace-practicing
+  name: resource_practicing
