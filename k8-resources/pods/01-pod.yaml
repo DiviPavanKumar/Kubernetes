@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: simple-pod
-  namespace: roboshop  # Use hyphen, not underscore (Kubernetes naming rule)
+  namespace: resource-practicing  # Use hyphen, not underscore (Kubernetes naming rule)
 spec:
   containers:
   - name: nginx              # should be under 'containers', and it's a list
